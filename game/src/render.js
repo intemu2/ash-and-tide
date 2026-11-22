@@ -1,6 +1,6 @@
-// All drawing for ASH AND TIDE: one bright 1280x720 canvas, big cards, big
-// numbers, big life totals. Every screen is drawn by this file alone.
-import { CANVAS_H, CANVAS_W, LAYOUT, SUITS } from './config.js';
+// All drawing for ASH AND TIDE v2: one bright 1280x720 canvas, big cards,
+// big numbers, big life totals. Every screen is drawn by this file alone.
+import { CANVAS_H, CANVAS_W, LAYOUT, RELIC_IDS, RELICS, SUITS } from './config.js';
 import { cardLabel } from './cards.js';
 
 export const SCREEN_TITLE = 'title';
@@ -22,8 +22,17 @@ export function playerHandRects() {
   return rects;
 }
 
-/** Rects of Marra's 5 face-down cards (shown, never clickable). */
-function marraHandRects() {
+/** Rects of the 3 relic cards on the title screen, for mouse hit-testing. */
+export function relicRects() {
+  const rects = [];
+  for (let i = 0; i < 3; i += 1) {
+    rects.push({ x: 180 + i * 340, y: 344, w: 240, h: 120 });
+  }
+  return rects;
+}
+
+/** Rects of the rival's 5 face-down cards (shown, never clickable). */
+function rivalHandRects() {
   const rects = [];
   const total = 5 * LAYOUT.aiCardW + 4 * 10;
   const x0 = (CANVAS_W - total) / 2;
@@ -99,6 +108,7 @@ function drawCardFace(ctx, x, y, w, h, card) {
   ctx.fillStyle = suit.dark;
   ctx.font = `900 ${Math.round(h * 0.09)}px Arial, sans-serif`;
   ctx.fillText(suit.name, x + w / 2, y + h * 0.93);
+  ctx.textBaseline = 'alphabetic';
 }
 
 function drawCardBack(ctx, x, y, w, h) {
@@ -136,6 +146,51 @@ function drawLife(ctx, x, y, label, life, alignLeft, barW = 220) {
   ctx.fillText(`♥ ${life}`, alignLeft ? barX + barW + 12 : barX - 12, y + 32);
 }
 
+/** Gauntlet progress under the rival's life bar: "RIVAL 2/3" + 3 dots. */
+function drawGauntlet(ctx, state) {
+  ctx.textAlign = 'left';
+  ctx.font = '900 22px Arial, sans-serif';
+  ctx.fillStyle = '#1B1B1B';
+  ctx.fillText(`RIVAL ${state.rivalIndex + 1}/3`, 24, 104);
+  for (let i = 0; i < 3; i += 1) {
+    ctx.beginPath();
+    ctx.arc(170 + i * 32, 96, 10, 0, Math.PI * 2);
+    if (i < state.rivalsBeaten) {
+      ctx.fillStyle = '#F2C14E';
+      ctx.fill();
+    } else if (i === state.rivalIndex) {
+      ctx.fillStyle = state.rival.color;
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+    }
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#1B1B1B';
+    ctx.stroke();
+  }
+  ctx.font = '700 18px Arial, sans-serif';
+  ctx.fillStyle = '#4A3A1A';
+  ctx.fillText(state.rival.title, 24, 134);
+}
+
+/** The chosen relic, as a gold pill under the round counter. */
+function drawRelicBadge(ctx, state) {
+  const relic = RELICS[state.relic];
+  if (!relic) return;
+  ctx.fillStyle = '#FFF8E1';
+  roundRect(ctx, CANVAS_W - 24 - 280, 96, 280, 36, 10);
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#D9930D';
+  ctx.stroke();
+  drawSuitIcon(ctx, CANVAS_W - 24 - 280 + 26, 114, 22, relic.suit);
+  ctx.textAlign = 'left';
+  ctx.font = '900 20px Arial, sans-serif';
+  ctx.fillStyle = '#1B1B1B';
+  ctx.fillText(`RELIC: ${relic.name.toUpperCase()}`, CANVAS_W - 24 - 280 + 46, 121);
+}
+
 function drawBackground(ctx) {
   const sky = ctx.createLinearGradient(0, 0, 0, 190);
   sky.addColorStop(0, '#A8D8EA');
@@ -163,38 +218,40 @@ function drawBackground(ctx) {
 
 function drawTable(ctx, state) {
   drawBackground(ctx);
-  // Marra: name + life top-left, face-down hand top-centre.
-  drawLife(ctx, 24, 46, 'MARRA', state.marraLife, true);
-  for (const r of marraHandRects()) drawCardBack(ctx, r.x, r.y, r.w, r.h);
-  // Round + tricks top-right.
+  // Rival: name + life top-left, face-down hand top-centre.
+  drawLife(ctx, 24, 46, state.rival.short, state.rivalLife, true);
+  drawGauntlet(ctx, state);
+  for (const r of rivalHandRects()) drawCardBack(ctx, r.x, r.y, r.w, r.h);
+  // Round + tricks top-right, relic badge below.
   ctx.textAlign = 'right';
   ctx.fillStyle = '#1B1B1B';
   ctx.font = '900 30px Arial, sans-serif';
   ctx.fillText(`ROUND ${state.round}`, CANVAS_W - 24, 46);
   ctx.font = '700 22px Arial, sans-serif';
-  ctx.fillText(`Tricks  YOU ${state.yourTricks} — ${state.marraTricks} MARRA`, CANVAS_W - 24, 78);
-  // Marra's telegraphed intent: the suit she is about to play.
-  if (state.phase === 'await-pick' && state.marraPick) {
-    const suit = SUITS[state.marraPick.intentSuit];
+  ctx.fillText(`Tricks  YOU ${state.yourTricks} — ${state.rivalTricks} ${state.rival.short}`, CANVAS_W - 24, 78);
+  drawRelicBadge(ctx, state);
+  // Rival's telegraphed intent: the suit she is about to play.
+  if (state.phase === 'await-pick' && state.rivalPick) {
+    const suit = SUITS[state.rivalPick.intentSuit];
     ctx.textAlign = 'center';
     ctx.fillStyle = '#FFF8E1';
-    roundRect(ctx, 440, 146, 400, 46, 10);
+    roundRect(ctx, 400, 146, 480, 46, 10);
     ctx.fill();
     ctx.lineWidth = 3;
     ctx.strokeStyle = suit.dark;
     ctx.stroke();
-    drawSuitIcon(ctx, 480, 169, 28, state.marraPick.intentSuit);
+    drawSuitIcon(ctx, 448, 169, 28, state.rivalPick.intentSuit);
     ctx.fillStyle = '#1B1B1B';
-    ctx.font = '900 24px Arial, sans-serif';
-    ctx.fillText(`MARRA AIMS FOR: ${suit.name}`, 680, 178);
+    ctx.font = '900 22px Arial, sans-serif';
+    ctx.fillText(`${state.rival.short} AIMS FOR: ${suit.name}`, 688, 177);
   }
-  // Played cards in the middle: Marra left, you right.
+  // Played cards in the middle: rival left, you right.
   const flip = state.flipT == null ? 1 : Math.min(1, state.flipT * 2);
-  if (state.playedMarra) {
+  if (state.playedRival) {
     ctx.save();
     ctx.translate(470 + 75, 228 + 105);
     ctx.scale(Math.max(0.05, flip), 1);
-    drawCardFace(ctx, -75, -105, 150, 210, state.playedMarra);
+    drawCardFace(ctx, -75, -105, 150, 210, state.playedRival);
     ctx.restore();
   }
   if (state.playedYou) {
@@ -204,7 +261,7 @@ function drawTable(ctx, state) {
     drawCardFace(ctx, -75, -105, 150, 210, state.playedYou);
     ctx.restore();
   }
-  if (state.playedYou && state.playedMarra) {
+  if (state.playedYou && state.playedRival) {
     ctx.fillStyle = '#1B1B1B';
     ctx.beginPath();
     ctx.arc(640, 333, 26, 0, Math.PI * 2);
@@ -248,14 +305,50 @@ function drawTable(ctx, state) {
     }
     drawCardFace(ctx, r.x, r.y + raised, r.w, r.h, card);
   });
-  // Hint between the intent banner and the played cards.
+  // Hint under the intent banner: what to do now.
   ctx.textAlign = 'center';
   ctx.font = '700 20px Arial, sans-serif';
   ctx.fillStyle = '#4A3A1A';
   const hint = state.phase === 'await-pick'
-    ? 'Click a card, or press 1-5 — beat her suit or her number!'
-    : 'Watch the trick resolve…';
+    ? 'Click a card, or press 1-5 — beat the rival suit or number!'
+    : state.phase === 'await-discard'
+      ? 'Trick resolved — discard 1 card to draw a fresh one!'
+      : 'Watch the trick resolve…';
   ctx.fillText(hint, 640, 216);
+}
+
+// Two-line effect text for each relic card on the title screen.
+const RELIC_LINES = {
+  EMBERBRAND: ['Win a trick with Ember:', '+2 damage.'],
+  TIDEGLASS: ['Win a trick with Tide:', 'draw 2, keep the best 5.'],
+  THORNMAIL: ['Lose a trick: the rival', 'takes 1 damage back.'],
+};
+
+function drawRelicCard(ctx, relicId, rect, selected) {
+  const relic = RELICS[relicId];
+  const y = selected ? rect.y - 8 : rect.y;
+  // The gold border + lift mark the chosen relic; no text badge, so no
+  // label can collide with the colour band or the name.
+  ctx.save();
+  roundRect(ctx, rect.x, y, rect.w, rect.h, 12);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fill();
+  ctx.lineWidth = selected ? 6 : 3;
+  ctx.strokeStyle = selected ? '#F2C14E' : relic.color;
+  ctx.stroke();
+  ctx.fillStyle = relic.color;
+  ctx.fillRect(rect.x + 4, y + 4, rect.w - 8, 8);
+  drawSuitIcon(ctx, rect.x + 32, y + 46, 36, relic.suit);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#1B1B1B';
+  ctx.font = '900 24px Arial, sans-serif';
+  ctx.fillText(relic.name, rect.x + 58, y + 42);
+  ctx.font = '700 16px Arial, sans-serif';
+  ctx.fillStyle = '#4A3A1A';
+  ctx.fillText(RELIC_LINES[relicId][0], rect.x + 14, y + 78);
+  ctx.fillText(RELIC_LINES[relicId][1], rect.x + 14, y + 100);
+  ctx.restore();
 }
 
 function drawTitle(ctx, state) {
@@ -269,34 +362,30 @@ function drawTitle(ctx, state) {
   ctx.beginPath();
   ctx.arc(1120, 86, 30, 0, Math.PI * 2);
   ctx.fill();
-  // Fanned decorative cards behind the title.
-  const demo = [
-    { suit: 'EMBER', value: 9 },
-    { suit: 'TIDE', value: 7 },
-    { suit: 'THORN', value: 8 },
-    { suit: 'STONE', value: 6 },
-  ];
-  demo.forEach((card, i) => {
-    ctx.save();
-    ctx.translate(340 + i * 200, 560);
-    ctx.rotate((i - 1.5) * 0.12);
-    drawCardFace(ctx, -70, -100, 140, 200, card);
-    ctx.restore();
-  });
   ctx.textAlign = 'center';
   ctx.fillStyle = '#1B1B1B';
   ctx.font = '900 96px Arial, sans-serif';
-  ctx.fillText('ASH AND TIDE', 640, 180);
+  ctx.fillText('ASH AND TIDE', 640, 150);
   ctx.font = '700 30px Arial, sans-serif';
   ctx.fillStyle = '#4A3A1A';
-  ctx.fillText('A duel of cards against Marra, Keeper of the Lighthouse', 640, 228);
+  ctx.fillText('A duel of cards against three rivals of the lighthouse', 640, 198);
   ctx.font = '700 24px Arial, sans-serif';
   ctx.fillStyle = '#1B1B1B';
-  ctx.fillText('Ember beats Thorn, Thorn beats Tide, Tide beats Ember — Stone is neutral.', 640, 280);
-  ctx.fillText('First to sink the other from 20 life wins. Combos: same suit +2, run +3.', 640, 314);
+  ctx.fillText('Ember beats Thorn, Thorn beats Tide, Tide beats Ember — Stone is neutral.', 640, 246);
+  ctx.fillText('24 cards, 3 rivals, 1 relic. First to sink all three wins. Combos: suit +2, run +3, flush +4.', 640, 278);
+  ctx.font = '900 26px Arial, sans-serif';
+  ctx.fillStyle = '#D63A2F';
+  ctx.fillText('CHOOSE A RELIC — click one, or press 1-3:', 640, 326);
+  const rects = relicRects();
+  RELIC_IDS.forEach((id, i) => drawRelicCard(ctx, id, rects[i], state.relic === id));
+  ctx.textAlign = 'center';
   ctx.font = '900 34px Arial, sans-serif';
   ctx.fillStyle = '#D63A2F';
-  ctx.fillText('CLICK OR PRESS ENTER TO START', 640, 400);
+  ctx.fillText('CLICK OR PRESS ENTER TO START', 640, 548);
+  ctx.font = '700 22px Arial, sans-serif';
+  ctx.fillStyle = '#4A3A1A';
+  ctx.fillText('Each round: play 1 card, then discard 1 to draw a fresh one.', 640, 596);
+  ctx.fillText('Beat the rival suit or number — read the telegraph, counter it.', 640, 628);
 }
 
 function drawOver(ctx, state) {
@@ -315,13 +404,14 @@ function drawOver(ctx, state) {
   ctx.font = '700 30px Arial, sans-serif';
   ctx.fillStyle = '#1B1B1B';
   const scoreLine = state.winner === 'you'
-    ? `Marra's life sank to 0 — you win ${state.youLife} to 0!`
-    : `Your life sank to 0 — Marra wins 0 to ${state.marraLife}!`;
+    ? `All three rivals sank — you win ${state.youLife} to 0!`
+    : `Your life sank to 0 — ${state.rival.name} wins 0 to ${state.rivalLife}!`;
   ctx.fillText(scoreLine, 640, 330);
-  ctx.fillText(`Final tricks: YOU ${state.yourTricks} — ${state.marraTricks} MARRA  ·  ${state.round} rounds`, 640, 378);
+  ctx.fillText(`Final tricks: YOU ${state.yourTricks} — ${state.rivalTricks} ${state.rival.short}  ·  ${state.round} rounds`, 640, 378);
+  ctx.fillText(`Rivals beaten: ${state.rivalsBeaten}/3  ·  Relic: ${RELICS[state.relic]?.name ?? 'none'}`, 640, 416);
   ctx.font = '900 28px Arial, sans-serif';
   ctx.fillStyle = '#D63A2F';
-  ctx.fillText('PRESS ENTER TO PLAY AGAIN', 640, 460);
+  ctx.fillText('PRESS ENTER TO PLAY AGAIN', 640, 470);
   if (state.winner === 'you') {
     // Confetti burst, fixed positions so the frame is deterministic.
     const colors = ['#D63A2F', '#1F7AD6', '#2E9E4A', '#D9930D', '#F2C14E'];
